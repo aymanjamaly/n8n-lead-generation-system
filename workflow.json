@@ -1,0 +1,2115 @@
+{
+  "name": "botanical lead gen system",
+  "nodes": [
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f18da38c-16b2-43ce-b958-9688cef549c3",
+              "leftValue": "={{ $json.companyName }}",
+              "rightValue": "null",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1024,
+        1056
+      ],
+      "id": "73077f1f-7ff2-41de-9b6c-cdcfb7b69695",
+      "name": "If",
+      "alwaysOutputData": false,
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5866be24-006f-45a9-856c-03d151c8651c",
+              "name": "startTime",
+              "value": "={{ $now.toFormat(\"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'\") }}",
+              "type": "string"
+            },
+            {
+              "id": "48f01ee4-0e31-4a37-953a-3eafcc66c405",
+              "name": "",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d6f3085d-2a77-44b3-abbb-72a88505d94d",
+      "name": "Set Start Time2",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2928,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "839e1137-a167-4d0d-88a7-b58c519e7ed7",
+      "name": "Loop Over URLs1",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -736,
+        784
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.firecrawl.dev/v1/scrape",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer REPLACE_WITH_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"url\": \"{{ $('Loop Over URLs1').item.json.url }}\",\n  \"formats\": [\"extract\"],\n  \"extract\": {\n    \"schema\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"businessName\": { \"type\": \"string\" },\n        \"email\": { \"type\": \"string\" },\n        \"phone\": { \"type\": \"string\" },\n        \"address\": { \"type\": \"string\" },\n        \"location\": { \"type\": \"string\" },\n        \"companyDescription\": { \"type\": \"string\" }\n      }\n    },\n    \"prompt\": \"Extract business contact information: official business name, primary email, phone number, physical address, city/location, and a short company description (what the company does, their main products or services, max 2 sentences).\"\n  }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "205cbd94-ac12-48cd-9e67-b5f2efca16a4",
+      "name": "Extract Lead Info1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -528,
+        800
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the extracted data from Firecrawl\nconst input = $input.first().json;\nconst loopUrl = $('Loop Over URLs1').item.json.url || '';\n\n// If Firecrawl failed, return placeholder so the loop continues\nif (!input.success || !input.data) {\n  return [{\n    json: {\n      business_name: 'Scrape Failed',\n      email: null,\n      phone: 'Not available',\n      address: null,\n      location: 'Not available',\n      url: loopUrl,\n      company_description: 'Not available',\n      email_verified: false,\n      email_verification_state: 'failed'\n    }\n  }];\n}\n\nconst extracted = input.data.extract || {};\nconst metadata = input.data.metadata || {};\n\n// STRICT email validation\nfunction isValidEmail(email) {\n  if (!email || typeof email !== 'string') return false;\n  const trimmed = email.trim().toLowerCase();\n  if (trimmed.length < 5) return false;\n  if (trimmed === 'null' || trimmed === '/contact') return false;\n  const parts = trimmed.split('@');\n  if (parts.length !== 2) return false;\n  const [local, domain] = parts;\n  if (!local || local.length === 0) return false;\n  if (local.startsWith('.')) return false;\n  if (local.endsWith('.')) return false;\n  if (local.includes('..')) return false;\n  if (!/^[a-z0-9._%+\\-]+$/.test(local)) return false;\n  if (!domain || domain.length < 3) return false;\n  if (domain.startsWith('.')) return false;\n  if (domain.startsWith('-')) return false;\n  if (!domain.includes('.')) return false;\n  if (!/^[a-z0-9.\\-]+$/.test(domain)) return false;\n  const tld = domain.split('.').pop();\n  if (!tld || tld.length < 2) return false;\n  return /^[a-z0-9._%+\\-]+@[a-z0-9.\\-]+\\.[a-z]{2,}$/.test(trimmed);\n}\n\nfunction isValidPhone(phone) {\n  if (!phone || phone === 'null' || phone === '/contact') return false;\n  return /\\d/.test(phone);\n}\n\nconst business_name = extracted.businessName || metadata.title || 'Unknown Business';\nconst email = isValidEmail(extracted.email) ? extracted.email.trim() : null;\nconst phone = isValidPhone(extracted.phone) ? extracted.phone.trim() : 'Not available';\nconst address = (extracted.address && extracted.address !== 'null') ? extracted.address : null;\nconst location = (extracted.location && extracted.location !== 'null') ? extracted.location : 'Not available';\nconst url = metadata.sourceURL || metadata.url || loopUrl;\n\nconst company_description = extracted.companyDescription\n  || metadata.ogDescription\n  || metadata['og:description']\n  || extracted.description\n  || extracted.about\n  || 'Not available';\n\nreturn [{\n  json: {\n    business_name,\n    email,\n    phone,\n    address,\n    location,\n    url,\n    company_description,\n    email_verified: false,\n    email_verification_state: 'risky'\n  }\n}];"
+      },
+      "id": "b11500c6-9498-4d69-915f-a6a4e81470fb",
+      "name": "Parse Lead Data1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -352,
+        800
+      ],
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              },
+              "id": "3152e667-8cd3-44d4-b9b9-f6fab52baa44"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7b5a73cc-dff1-4dc9-b8d6-0490a31cb5ca",
+      "name": "If Email Exists1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -128,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://emailverifier.reoon.com/api/v1/verify?email={{ $json.email }}&key=REPLACE_WITH_API_KEY&mode=power",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "1830abbf-2980-46ae-874f-53ed8100d0f2",
+      "name": "Verify Email1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        624,
+        688
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge Reoon verification result with lead data\nconst leadData = $('Parse Lead Data1').item.json;\nconst reoon = $input.first().json || {};\n\n// Reoon response: { status: \"safe\"|\"valid\"|\"invalid\"|\"risky\"|\"unknown\", is_deliverable: bool, ... }\nconst status = (reoon.status || '').toLowerCase();\nconst isDeliverable = reoon.is_deliverable === true;\n\n// Consider \"safe\" and \"valid\" as verified; everything else as risky\nconst verified = status === 'safe' || status === 'valid' || isDeliverable;\n\nreturn [{\n  json: {\n    ...leadData,\n    email_verified: verified,\n    email_verification_state: status || 'unknown',\n    email_verification_score: reoon.score || 0\n  }\n}];"
+      },
+      "id": "02e8519d-9139-43b9-a0f8-9bf7dd0455b8",
+      "name": "Merge Verification1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "68f9be57-0d0a-4ced-9344-c746df146f13",
+              "leftValue": "={{ $json.email_verified }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5c9e41b5-bbe2-49ea-b314-c4da95ece968",
+      "name": "If Email Valid1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const leadData = $('Parse Lead Data1').item.json;\n\nreturn [{\n  json: {\n    ...leadData,\n    email_verified: false,\n    email_verification_status: 'no_email',\n    email_verification_score: 0\n  }\n}];"
+      },
+      "id": "d491bd7f-6b15-4c0d-bc1c-fb22a1e0125a",
+      "name": "No Email - Store Anyway1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        992
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1bf40140-194b-4393-bd37-27fa82803810",
+              "name": "url",
+              "value": "={{ $json.url }}",
+              "type": "string"
+            },
+            {
+              "id": "4b3aac5c-3ddc-4406-9aec-154a4fe58625",
+              "name": "description",
+              "value": "={{ $json.description }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1872,
+        1056
+      ],
+      "id": "80c26c20-a7e4-4d2e-ac7f-7efcdd97be7a",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the Firecrawl search results from the first input item\nconst inputData = $input.first().json;\nconst searchResults = inputData.data.web || [];\n\n// ── LAYER 1: Domain blocklist (exact domain matches) ──\nconst blockedDomains = [\n  // Social media\n  'facebook.com', 'linkedin.com', 'twitter.com', 'instagram.com',\n  'youtube.com', 'tiktok.com', 'pinterest.com', 'reddit.com',\n  'threads.net', 'x.com',\n\n  // Marketplaces\n  'amazon.com', 'amazon.co.uk', 'amazon.de', 'amazon.fr',\n  'ebay.com', 'etsy.com', 'alibaba.com', 'aliexpress.com',\n  'walmart.com', 'target.com', 'temu' ,\n\n  // Market research / report sites\n  'grandviewresearch.com', 'factmr.com', 'datamintelligence.com',\n  'persistencemarketresearch.com', 'mordorintelligence.com',\n  'fortunebusinessinsights.com', 'marketsandmarkets.com',\n  'alliedmarketresearch.com', 'transparencymarketresearch.com',\n  'emergenresearch.com', 'verifiedmarketresearch.com',\n  'coherentmarketinsights.com', 'futuremarketinsights.com',\n  'imarcgroup.com', 'researchandmarkets.com', 'statista.com',\n  'precedenceresearch.com', 'expertmarketresearch.com',\n  'globalmarketinsights.com', 'zionmarketresearch.com',\n  'reportsanddata.com', 'straitsresearch.com',\n  'marketresearchfuture.com', 'technavio.com',\n  'psmarketresearch.com', 'databridgemarketresearch.com',\n  'skyquestt.com', 'thebrainyinsights.com',\n  'sphericalinsights.com', 'custommarketinsights.com',\n\n  // News / media / encyclopedias\n  'wikipedia.org', 'britannica.com', 'bbc.com', 'cnn.com',\n  'forbes.com', 'bloomberg.com', 'reuters.com',\n  'nytimes.com', 'theguardian.com', 'huffpost.com',\n\n  // Job sites\n  'indeed.com', 'glassdoor.com', 'ziprecruiter.com',\n\n  // Q&A / forums / dev\n  'stackoverflow.com', 'github.com', 'quora.com',\n  'medium.com', 'dev.to', 'w3schools.com',\n\n  // Reviews / travel / classifieds\n  'yelp.com', 'tripadvisor.com', 'booking.com',\n  'airbnb.com', 'craigslist.org',\n\n  // Generic directories\n  'yellowpages.com', 'whitepages.com', 'manta.com',\n  'bbb.org', 'dnb.com',\n];\n\n// ── LAYER 2: URL path patterns to exclude ──\nconst blockedUrlPatterns = [\n  '/docs/', '/documentation/', '/blog/', '/news/',\n  '/article/', '/press-release/', '/wiki/',\n  '/report/', '/market-report/', '/research-report/',\n  '/career', '/jobs/', '/job/','/journal' ,\n];\n\n// ── LAYER 3: Title/description keywords that indicate non-business pages ──\nconst blockedTitleKeywords = [\n  'market size', 'market share', 'market report', 'market research',\n  'market forecast', 'market analysis', 'market outlook',\n  'market growth', 'market trends', 'market overview',\n  'industry report', 'industry analysis', 'industry forecast',\n  'cagr', 'compound annual growth',\n  'billion by 20', 'million by 20',  // \"USD 472.6 million by 2035\"\n  'market segmented', 'market is projected',\n  'research report', 'forecast and outlook',\n  'press release', 'news article', 'lifestyle' , 'lexurylifestyle' , 'lifestyle' , \n  'book', 'ebook'\n];\n\n// ── FILTER ──\nconst filteredResults = searchResults\n  .filter(result => {\n    const url = (result.url || '').toLowerCase();\n    const title = (result.title || '').toLowerCase();\n    const desc = (result.description || '').toLowerCase();\n    const text = title + ' ' + desc;\n\n    // Layer 1: Block known domains\n    if (blockedDomains.some(d => url.includes(d))) return false;\n\n    // Layer 2: Block URL path patterns\n    if (blockedUrlPatterns.some(p => url.includes(p))) return false;\n\n    // Layer 3: Block market research content by title/description\n    if (blockedTitleKeywords.some(kw => text.includes(kw))) return false;\n\n    // Must have a real URL\n    if (!url || url.length < 10) return false;\n\n    return true;\n  })\n  .map(result => ({\n    json: {\n      url: result.url,\n      title: result.title || '',\n      description: result.description || '',\n      position: result.position || 0\n    }\n  }));\n\nreturn filteredResults;"
+      },
+      "id": "77e77735-06e5-4097-bafc-740527490c99",
+      "name": "Filter URLs1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2064,
+        1056
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "respondWith": "allEntries",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -304,
+        384
+      ],
+      "id": "33c592b3-d4fb-4da5-9583-451f402ab919",
+      "name": "Respond to Webhook1",
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={\"status\":\"duplicates\",\"totalLeads\":0,\"message\":\"All leads found are already in your database.\",\"details\":\"Try different keywords or a new location to find fresh leads.\"}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -800,
+        1440
+      ],
+      "id": "eb164401-4b78-4bf6-b768-9381046590a3",
+      "name": "Respond to Webhook (Duplicates)1"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appWzgzC0MmOvHTg8",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblYPo5OmMZYRy1y8",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Business Name": "={{ $json.business_name }}",
+            "Website": "={{ $json.url }}",
+            "Phone": "={{ $json.phone }}",
+            "Location": "={{ $json.location }}",
+            "Company Description": "={{ $json.company_description }}",
+            "Email Status": "🔍 Email Not Found",
+            "Reachout Status": "⏳ Pending",
+            "Date Added": "={{ $now.toISO() }}",
+            "Source Query": "={{ [$('Webhook').item.json.body.keywords, $('Webhook').item.json.body.location].filter(Boolean).join(' — ') }}"
+          },
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": [
+            {
+              "id": "Business Name",
+              "displayName": "Business Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Location",
+              "displayName": "Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Company Description",
+              "displayName": "Company Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Email Status",
+              "displayName": "Email Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Reachout Status",
+              "displayName": "Reachout Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Date Added",
+              "displayName": "Date Added",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Source Query",
+              "displayName": "Source Query",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "at-web-invalid",
+      "name": "Append row in sheet3",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        928,
+        992
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "9ozfQxW6I33tdIQl",
+          "name": "Airtable"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Count valid leads (saved to valid leads sheet)\nlet validCount = 0;\nlet invalidCount = 0;\n\ntry {\n  const validItems = $('Append row in sheet2').all();\n  validCount = validItems.length;\n} catch(e) {\n  // Node may not have run\n}\n\ntry {\n  const invalidItems = $('Append row in sheet3').all();\n  invalidCount = invalidItems.length;\n} catch(e) {\n  // Node may not have run\n}\n\nconst total = validCount + invalidCount;\n\nreturn [{\n  json: {\n    status: total > 0 ? \"success\" : \"no_results\",\n    totalLeads: total,\n    validLeads: validCount,\n    invalidLeads: invalidCount,\n    message: total > 0\n      ? \"Found \" + total + \" leads! (\" + validCount + \" valid, \" + invalidCount + \" invalid)\"\n      : \"No leads found for your search.\",\n    processedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -496,
+        384
+      ],
+      "id": "6600f822-240d-4f39-9725-ff88b6da8fd5",
+      "name": "calculate how many lead send to loop1"
+    },
+    {
+      "parameters": {
+        "resource": "MapSearch",
+        "operation": "search",
+        "query": "={{ $json.query }}",
+        "sources": [],
+        "limit": "={{ $json.limit }}",
+        "requestOptions": {}
+      },
+      "type": "@mendable/n8n-nodes-firecrawl.firecrawl",
+      "typeVersion": 1,
+      "position": [
+        -2240,
+        1280
+      ],
+      "id": "41cbabe7-d25c-4d3b-bc90-7b69d4e03518",
+      "name": "Search the web and scrape results",
+      "credentials": {
+        "firecrawlApi": {
+          "id": "zNXChlc3JO6KYmKM",
+          "name": "Firecrawl account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.map(item => {\n  const url = item.json.url || '';\n  let companyName = '';\n\n  // Method 1: Extract from /store/{name}/ pattern\n  const storeMatch = url.match(/\\/store\\/([^\\/\\?]+)/);\n  if (storeMatch) {\n    companyName = storeMatch[1];\n  }\n\n  // Method 2: Extract domain-based name\n  if (!companyName) {\n    const domainMatch = url.match(/\\/\\/([^\\/]+)/);\n    if (domainMatch) {\n      companyName = domainMatch[1].replace('www.', '');\n    }\n  }\n\n  // Clean up\n  companyName = companyName\n    .replace(/\\?.*$/, '')\n    .replace(/-/g, ' ')\n    .replace(/_/g, ' ')\n    .replace(/\\/$/, '')\n    .trim()\n    .toLowerCase();\n\n  // FALLBACK: never let companyName be empty\n  if (!companyName) {\n    companyName = url || 'unknown-' + Math.random().toString(36).slice(2, 8);\n  }\n\n  return {\n    json: {\n      url: url,\n      companyName: companyName,\n      originalUrl: url\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1664,
+        1056
+      ],
+      "id": "c31c9c63-ed9a-4a9b-8482-6f7db91f8973",
+      "name": "company domain"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "38888828-9ac1-4508-9e6c-79b0e1ddeee8",
+        "options": {}
+      },
+      "id": "6697d956-14a2-495d-b76a-7115a8798003",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -3456,
+        1600
+      ],
+      "webhookId": "38888828-9ac1-4508-9e6c-79b0e1ddeee8"
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "companyName",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        -1248,
+        1056
+      ],
+      "id": "8114c02c-35e7-4ea2-8a8d-cd35a0314ff6",
+      "name": "Remove Duplicates",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const email = (item.json.email || '').trim().toLowerCase();\n  const url = item.json.url || '';\n  let domain = '';\n  if (url) {\n    try { domain = new URL(url).hostname.replace('www.', ''); } catch(e) {}\n  }\n  if (!email) {\n    return { json: { ...item.json, email_status: 'missing', domain } };\n  }\n  const prefix = email.split('@')[0];\n  const generic = ['info','contact','support','hello','admin','sales','help','office','team','enquiries','mail','general','service','enquiry','request','marketing','press','media','feedback','billing','accounts','hr','jobs','careers','webmaster','postmaster','noreply','no-reply','newsletter'];\n  if (generic.includes(prefix)) {\n    return { json: { ...item.json, email_status: 'generic', original_email: email, domain } };\n  }\n  return { json: { ...item.json, email_status: 'personal', domain } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        96,
+        704
+      ],
+      "id": "classify-email-001",
+      "name": "Classify Email"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "pc-001",
+              "leftValue": "={{ $json.email_status }}",
+              "rightValue": "missing",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        336,
+        704
+      ],
+      "id": "is-personal-001",
+      "name": "Is Personal Email?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "channel-web-check",
+              "leftValue": "={{ $json.body.channel }}",
+              "rightValue": "apollo",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -3184,
+        1600
+      ],
+      "id": "channel-if-001",
+      "name": "Channel Router"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appWzgzC0MmOvHTg8",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblYPo5OmMZYRy1y8",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Business Name": "={{ $json.business_name }}",
+            "Website": "={{ $json.url }}",
+            "Email": "={{ $json.email }}",
+            "Phone": "={{ $json.phone }}",
+            "Location": "={{ $json.location }}",
+            "Company Description": "={{ $json.company_description }}",
+            "Email Status": "✅ Valid",
+            "Reachout Status": "⏳ Pending",
+            "Date Added": "={{ $now.toISO() }}",
+            "Source Query": "={{ [$('Webhook').item.json.body.keywords, $('Webhook').item.json.body.location].filter(Boolean).join(' — ') }}"
+          },
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": [
+            {
+              "id": "Business Name",
+              "displayName": "Business Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Location",
+              "displayName": "Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Company Description",
+              "displayName": "Company Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Email Status",
+              "displayName": "Email Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Reachout Status",
+              "displayName": "Reachout Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Date Added",
+              "displayName": "Date Added",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Source Query",
+              "displayName": "Source Query",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "at-web-valid",
+      "name": "Append row in sheet2",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1376,
+        672
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "9ozfQxW6I33tdIQl",
+          "name": "Airtable"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Smart Query Variation Engine ──\n// Instead of just appending \"suppliers/distributors\" to the same keywords,\n// this generates truly different search angles to maximize unique leads.\n\nconst keywords = $('Webhook').item.json.body.keywords;\nconst location = $('Webhook').item.json.body.location;\nconst quantity = Number($('Webhook').item.json.body.quantity) || 100;\nconst numSearches = Math.ceil(quantity / 100);\n\n// ── Step 1: Extract core terms from user keywords ──\n// e.g. \"botanical oil shops\" → core = \"botanical oil\", businessType = \"shops\"\nconst words = keywords.toLowerCase().trim().split(/\\s+/);\nconst businessWords = ['shops','shop','store','stores','supplier','suppliers',\n  'distributor','distributors','company','companies','brand','brands',\n  'manufacturer','manufacturers','retailer','retailers','wholesale',\n  'vendor','vendors','seller','sellers','dealer','dealers','provider','providers'];\nconst coreParts = [];\nconst userBizType = [];\nfor (const w of words) {\n  if (businessWords.includes(w)) userBizType.push(w);\n  else coreParts.push(w);\n}\nconst coreKeyword = coreParts.join(' '); // e.g. \"botanical oil\"\n\n// ── Step 2: Related product/industry terms ──\n// Maps common product keywords to related search angles\nconst relatedTerms = {\n  'botanical': ['botanical oil', 'organic botanical', 'moroccan oil', 'natural oils', 'beauty oils', 'hair oil', 'cosmetic oils'],\n  'oil': ['essential oils', 'carrier oils', 'natural oils', 'organic oils', 'beauty oils'],\n  'cosmetic': ['beauty products', 'skincare', 'personal care', 'beauty brands', 'cosmetics ingredients'],\n  'beauty': ['cosmetics', 'skincare brands', 'beauty products', 'personal care', 'natural beauty'],\n  'skincare': ['skin care products', 'beauty brands', 'cosmetics', 'natural skincare', 'organic skincare'],\n  'organic': ['natural products', 'eco-friendly', 'bio products', 'green beauty', 'organic ingredients'],\n  'food': ['gourmet food', 'specialty food', 'organic food', 'natural food', 'food ingredients'],\n  'supplement': ['dietary supplements', 'health products', 'nutraceuticals', 'vitamins', 'wellness products'],\n};\n\n// Find related terms based on the core keyword\nconst related = new Set();\nfor (const word of coreParts) {\n  if (relatedTerms[word]) {\n    relatedTerms[word].forEach(t => related.add(t));\n  }\n}\n\n// ── Step 3: Business type variations ──\nconst bizTypes = ['suppliers', 'distributors', 'wholesale', 'manufacturers',\n  'brands', 'companies', 'retailers', 'importers', 'exporters', 'vendors'];\n\n// ── Step 4: Major cities for the location (geographic variation) ──\nconst citiesByCountry = {\n  'united states': ['New York', 'Los Angeles', 'Chicago', 'Houston', 'Miami', 'San Francisco', 'Dallas', 'Seattle'],\n  'usa': ['New York', 'Los Angeles', 'Chicago', 'Houston', 'Miami', 'San Francisco'],\n  'united kingdom': ['London', 'Manchester', 'Birmingham', 'Edinburgh', 'Bristol', 'Leeds'],\n  'uk': ['London', 'Manchester', 'Birmingham', 'Edinburgh', 'Bristol'],\n  'germany': ['Berlin', 'Munich', 'Hamburg', 'Frankfurt', 'Cologne', 'Stuttgart'],\n  'france': ['Paris', 'Lyon', 'Marseille', 'Toulouse', 'Bordeaux', 'Nice'],\n  'spain': ['Madrid', 'Barcelona', 'Valencia', 'Seville', 'Bilbao', 'Malaga'],\n  'italy': ['Milan', 'Rome', 'Turin', 'Florence', 'Naples', 'Bologna'],\n  'canada': ['Toronto', 'Vancouver', 'Montreal', 'Calgary', 'Ottawa', 'Edmonton'],\n  'netherlands': ['Amsterdam', 'Rotterdam', 'The Hague', 'Utrecht', 'Eindhoven'],\n  'australia': ['Sydney', 'Melbourne', 'Brisbane', 'Perth', 'Adelaide'],\n  'uae': ['Dubai', 'Abu Dhabi', 'Sharjah'],\n  'saudi arabia': ['Riyadh', 'Jeddah', 'Dammam'],\n  'morocco': ['Casablanca', 'Marrakech', 'Rabat', 'Fes', 'Tangier'],\n  'india': ['Mumbai', 'Delhi', 'Bangalore', 'Chennai', 'Hyderabad', 'Pune'],\n  'brazil': ['São Paulo', 'Rio de Janeiro', 'Belo Horizonte', 'Curitiba'],\n  'japan': ['Tokyo', 'Osaka', 'Yokohama', 'Nagoya', 'Kyoto'],\n  'south korea': ['Seoul', 'Busan', 'Incheon', 'Daegu'],\n  'china': ['Shanghai', 'Beijing', 'Guangzhou', 'Shenzhen', 'Chengdu'],\n};\nconst locLower = location.toLowerCase().trim();\nconst cities = citiesByCountry[locLower] || [];\n\n// ── Step 5: Build diverse query pool ──\nconst queryPool = [];\n\n// Strategy 1: Original query (always first)\nqueryPool.push(keywords + ' ' + location);\n\n// Strategy 2: Core keyword + different business types + location\nfor (const biz of bizTypes) {\n  if (!userBizType.includes(biz)) {\n    queryPool.push(coreKeyword + ' ' + biz + ' ' + location);\n  }\n}\n\n// Strategy 3: Related industry terms + location\nfor (const term of related) {\n  queryPool.push(term + ' ' + location);\n  // Also with business types\n  queryPool.push(term + ' suppliers ' + location);\n}\n\n// Strategy 4: Core keyword + major cities (drill into specific cities)\nfor (const city of cities.slice(0, 4)) {\n  queryPool.push(coreKeyword + ' ' + city);\n  queryPool.push(coreKeyword + ' suppliers ' + city);\n}\n\n// Strategy 5: \"buy [product] wholesale [location]\" style queries\nqueryPool.push('buy ' + coreKeyword + ' wholesale ' + location);\nqueryPool.push(coreKeyword + ' B2B ' + location);\nqueryPool.push(coreKeyword + ' bulk ' + location);\n\n// ── Step 6: Deduplicate and pick the best N queries ──\nconst seen = new Set();\nconst uniqueQueries = [];\nfor (const q of queryPool) {\n  const normalized = q.toLowerCase().trim();\n  if (!seen.has(normalized)) {\n    seen.add(normalized);\n    uniqueQueries.push(q);\n  }\n}\n\n// Pick exactly numSearches queries\nconst selected = uniqueQueries.slice(0, numSearches);\n\n// Build output items\nconst variations = selected.map((query, i) => ({\n  json: {\n    query,\n    limit: Math.min(100, quantity - (i * 100)),\n    searchIndex: i,\n  }\n}));\n\n// Clear accumulated results for this run\nconst staticData = $getWorkflowStaticData('global');\nstaticData.accumulatedResults = [];\n\nreturn variations;"
+      },
+      "id": "gen-query-var-001",
+      "name": "Generate Query Variations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2688,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "search-loop-001",
+      "name": "Search Loop",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -2448,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Accumulate Firecrawl results across loop iterations using static data\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.accumulatedResults) staticData.accumulatedResults = [];\n\nconst results = $input.first().json;\nif (results.data && results.data.web) {\n  staticData.accumulatedResults.push(...results.data.web);\n}\n\nreturn [{ json: { accumulated: staticData.accumulatedResults.length } }];"
+      },
+      "id": "accum-results-001",
+      "name": "Accumulate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1952,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read all accumulated Firecrawl results and deduplicate by URL\nconst staticData = $getWorkflowStaticData('global');\nconst allResults = staticData.accumulatedResults || [];\n\n// Deduplicate by URL\nconst seen = new Set();\nconst unique = allResults.filter(r => {\n  const url = (r.url || '').toLowerCase().replace(/\\/+$/, '');\n  if (!url || seen.has(url)) return false;\n  seen.add(url);\n  return true;\n});\n\n// Clean up static data\nstaticData.accumulatedResults = [];\n\n// Return in the same format that Filter URLs1 expects\n// (single item with data.web array)\nreturn [{ json: { data: { web: unique } } }];"
+      },
+      "id": "merge-results-001",
+      "name": "Merge All Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2256,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $('Webhook').item.json.body;\n\n// --- Location mapping ---\nconst locationMap = {\n  'usa': 'United States', 'us': 'United States',\n  'uk': 'United Kingdom', 'gb': 'United Kingdom',\n  'uae': 'United Arab Emirates',\n  'ksa': 'Saudi Arabia', 'sa': 'Saudi Arabia',\n};\nconst rawLocation = (body.location || '').trim();\nconst location = locationMap[rawLocation.toLowerCase()] || rawLocation;\n\n// --- Job titles ---\n// Hardcoded decision-maker titles optimized for cosmetics/beauty ingredient sourcing\nconst defaultTitles = [\n  'CEO', 'Founder', 'Co-Founder', 'Owner', 'Managing Director',\n  'Procurement Manager', 'Purchasing Manager', 'Head of Purchasing', 'Sourcing Manager', 'Supply Chain Manager',\n  'R&D Manager', 'Product Development Manager', 'Head of Product Development',\n  'Cosmetic Chemist', 'Formulator', 'Head of R&D'\n];\nconst jobTitles = body.jobTitles\n  ? body.jobTitles.split(',').map(t => t.trim()).filter(Boolean)\n  : defaultTitles;\n\n// --- Keyword tag mapping ---\nconst rawIndustry = (body.industry || '').trim().toLowerCase();\n\nconst INDUSTRY_MAP = {\n  'cosmetics & beauty':   ['cosmetics', 'beauty', 'personal care'],\n  'cosmetics':            ['cosmetics', 'beauty', 'personal care'],\n  'beauty':               ['beauty', 'cosmetics', 'personal care'],\n  'skincare':             ['cosmetics', 'beauty', 'personal care', 'skin care'],\n  'personal care':        ['personal care', 'cosmetics', 'beauty'],\n  'spa & wellness':       ['wellness', 'health', 'beauty', 'spa'],\n  'spa':                  ['wellness', 'beauty', 'spa'],\n  'wellness':             ['wellness', 'health', 'beauty'],\n  'health & supplements': ['health', 'wellness', 'dietary supplements', 'nutraceuticals'],\n  'health and wellness':  ['health', 'wellness', 'beauty', 'spa'],\n  'supplement':           ['dietary supplements', 'nutraceuticals', 'health', 'wellness'],\n  'pharmaceuticals':      ['pharmaceuticals', 'health', 'wellness'],\n  'pharmacy':             ['pharmaceuticals', 'health', 'wellness'],\n  'food & beverage':      ['food production', 'food', 'beverages', 'health food'],\n  'food and beverage':    ['food production', 'food', 'beverages', 'health food'],\n  'food':                 ['food production', 'food', 'health food'],\n  'hair care':            ['cosmetics', 'beauty', 'personal care', 'hair care'],\n  'haircare':             ['cosmetics', 'beauty', 'personal care'],\n  'natural products':     ['cosmetics', 'beauty', 'health', 'wellness', 'natural'],\n  'cosmetic manufacturing': ['cosmetics', 'beauty', 'manufacturing', 'personal care'],\n  'essential oils':       ['essential oils', 'aromatherapy', 'cosmetics', 'wellness'],\n  'soap and cleaning compounds': ['cosmetics', 'personal care', 'beauty', 'soap'],\n  'soap':                 ['cosmetics', 'personal care', 'beauty'],\n  'organic':              ['cosmetics', 'beauty', 'health', 'wellness'],\n  'natural':              ['cosmetics', 'beauty', 'wellness', 'health'],\n  'packaging':            ['packaging', 'cosmetics', 'beauty'],\n};\n\nconst industryTags = INDUSTRY_MAP[rawIndustry] || [rawIndustry];\n\n// --- Additional keywords from free-text field ---\n// These are comma-separated custom keywords from the form\nconst extraKeywords = (body.apolloKeywords || '')\n  .split(',')\n  .map(k => k.trim().toLowerCase())\n  .filter(Boolean);\n\n// Merge industry tags + extra keywords, remove duplicates\nconst allTags = [...new Set([...industryTags, ...extraKeywords])];\n\n// --- Build Apollo search body ---\nconst searchBody = {\n  per_page: Math.min(Number(body.quantity) || 25, 100),\n  page: 1,\n  organization_locations: [location],\n  q_organization_keyword_tags: allTags,\n  person_titles: jobTitles,\n};\n\nreturn [{ json: { searchBody, quantity: Number(body.quantity) || 25 } }];"
+      },
+      "id": "apollo-prep-001",
+      "name": "Prepare Apollo Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2688,
+        2000
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/mixed_people/api_search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Api-Key",
+              "value": "REPLACE_WITH_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.searchBody) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "apollo-api-001",
+      "name": "Apollo People Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2448,
+        2000
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst people = response.people || [];\n\nif (people.length === 0) {\n  return [{ json: { _noResults: true } }];\n}\n\n// ──��� Industries to ALWAYS BLOCK ───────────────────────────────────────────\nconst BLOCKED = [\n  'financial services', 'banking', 'accounting', 'insurance',\n  'investment management', 'venture capital', 'private equity',\n  'management consulting', 'business consulting', 'staffing and recruiting',\n  'human resources', 'real estate', 'law practice', 'legal services',\n  'information technology and services', 'computer software', 'internet',\n  'telecommunications', 'construction', 'civil engineering', 'architecture',\n  'education management', 'higher education', 'e-learning',\n  'government administration', 'military', 'non-profit organization management',\n  'market research', 'public relations', 'media production',\n  'marketing and advertising',\n];\n\nfunction shouldBlock(person) {\n  const org = person.organization || {};\n  const industry = (org.industry || '').toLowerCase().trim();\n  if (!industry) return false; // no industry label → let through, check at reveal stage\n  return BLOCKED.some(b => industry.includes(b));\n}\n\nconst filtered = people.filter(p => !shouldBlock(p));\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData.apolloTotalResults = filtered.length;\n\nif (filtered.length === 0) {\n  return [{ json: { _noResults: true } }];\n}\n\nreturn filtered.map(p => ({\n  json: {\n    personId: p.id,\n    firstName: p.first_name || '',\n    title: p.title || '',\n    hasEmail: p.has_email === true,\n    hasPhone: p.has_direct_phone === 'Yes',\n    orgName: (p.organization && p.organization.name) || '',\n    orgIndustry: (p.organization && p.organization.industry) || '',\n    _totalFromApollo: filtered.length,\n  }\n}));"
+      },
+      "id": "apollo-process-001",
+      "name": "Process Apollo Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2256,
+        2000
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "removeItemsSeenInPreviousExecutions",
+        "dedupeValue": "={{ $('Apollo People Search').item.json.people[0].organization.name }}",
+        "options": {}
+      },
+      "id": "apollo-dedup-001",
+      "name": "Apollo Dedup",
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        -2048,
+        2000
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "apollo-loop-001",
+      "name": "Apollo Loop",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -1328,
+        2000
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "apollo-valid-check",
+              "leftValue": "={{ $json.email_verified }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "apollo-if-valid-001",
+      "name": "Apollo If Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -768,
+        2016
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appWzgzC0MmOvHTg8",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblnlqNdqg0tfwdhF",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Business Name": "={{ $json.business_name }}",
+            "Contact Name": "={{ $json.contact_name }}",
+            "Contact Title": "={{ $json.contact_title }}",
+            "Email": "={{ $json.email }}",
+            "Phone": "={{ $json.phone }}",
+            "Website": "={{ $json.url }}",
+            "Company Domain": "={{ $json.companyDomain }}",
+            "Location": "={{ $json.location }}",
+            "Company Description": "={{ $json.company_description }}",
+            "Business Category": "={{ $json.business_category }}",
+            "Company Size": "={{ $json.company_size }}",
+            "Source Query": "={{ $json.source_query }}",
+            "Email Status": "✅ Verified",
+            "Reachout Status": "⏳ Pending",
+            "Apollo Person ID": "={{ $json.personId }}",
+            "Date Added": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": [
+            {
+              "id": "Business Name",
+              "displayName": "Business Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Contact Name",
+              "displayName": "Contact Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Contact Title",
+              "displayName": "Contact Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Company Domain",
+              "displayName": "Company Domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Location",
+              "displayName": "Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Company Description",
+              "displayName": "Company Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Business Category",
+              "displayName": "Business Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Company Size",
+              "displayName": "Company Size",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Source Query",
+              "displayName": "Source Query",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Email Status",
+              "displayName": "Email Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Reachout Status",
+              "displayName": "Reachout Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Apollo Person ID",
+              "displayName": "Apollo Person ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Date Added",
+              "displayName": "Date Added",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "apollo-save-valid-001",
+      "name": "Apollo Save Valid",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -560,
+        1904
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "9ozfQxW6I33tdIQl",
+          "name": "Airtable"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appWzgzC0MmOvHTg8",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblnlqNdqg0tfwdhF",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Business Name": "={{ $json.business_name }}",
+            "Contact Name": "={{ $json.contact_name }}",
+            "Contact Title": "={{ $json.contact_title }}",
+            "Phone": "={{ $json.phone }}",
+            "Website": "={{ $json.url }}",
+            "Company Domain": "={{ $json.companyDomain }}",
+            "Location": "={{ $json.location }}",
+            "Company Description": "={{ $json.company_description }}",
+            "Business Category": "={{ $json.business_category }}",
+            "Company Size": "={{ $json.company_size }}",
+            "Source Query": "={{ $json.source_query }}",
+            "Email Status": "🔍 Email Not Found",
+            "Reachout Status": "⏳ Pending",
+            "Date Added": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": [
+            {
+              "id": "Business Name",
+              "displayName": "Business Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Contact Name",
+              "displayName": "Contact Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Contact Title",
+              "displayName": "Contact Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Company Domain",
+              "displayName": "Company Domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Location",
+              "displayName": "Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Company Description",
+              "displayName": "Company Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Business Category",
+              "displayName": "Business Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Company Size",
+              "displayName": "Company Size",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Source Query",
+              "displayName": "Source Query",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Email Status",
+              "displayName": "Email Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Reachout Status",
+              "displayName": "Reachout Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Date Added",
+              "displayName": "Date Added",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "apollo-save-invalid-001",
+      "name": "Apollo Save Invalid",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -544,
+        2128
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "9ozfQxW6I33tdIQl",
+          "name": "Airtable"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "id": "apollo-wait-001",
+      "name": "Apollo Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -80,
+        2080
+      ],
+      "webhookId": "apollo-wait-hook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst totalFromApollo = staticData.apolloTotalResults || 0;\n\nreturn [{ json: {\n  totalFromApollo,\n  message: 'Apollo search complete',\n} }];"
+      },
+      "id": "apollo-stats-001",
+      "name": "Apollo Stats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1216,
+        1696
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "apollo-respond-001",
+      "name": "Apollo Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -912,
+        1696
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={\"status\":\"no_results\",\"totalLeads\":0,\"message\":\"No leads found on Apollo matching your criteria.\",\"details\":\"Try broader keywords, a different location, or different job titles.\"}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "apollo-noresults-001",
+      "name": "Apollo No Results",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -1568,
+        2272
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/people/match",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Api-Key",
+              "value": "REPLACE_WITH_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ id: $json.personId, reveal_personal_emails: true }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "apollo-reveal-person-001",
+      "name": "Apollo Reveal Person",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1104,
+        2016
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const revealed = $input.first().json;\nconst person = revealed.person || {};\nconst org = person.organization || {};\n\nconst location = [org.city, org.state, org.country].filter(Boolean).join(', ');\n\nlet phone = '';\nif (person.phone_numbers && person.phone_numbers.length > 0) {\n  phone = person.phone_numbers[0].sanitized_number || person.phone_numbers[0].number || '';\n} else if (org.phone) {\n  phone = org.phone;\n}\n\nconst description = org.short_description\n  || (org.name + ' — ' + (org.industry || 'Company') + ' with ~' + (org.estimated_num_employees || '?') + ' employees');\n\nconst isVerified = person.email_status === 'verified';\n\n// ── Business Category mapping from Apollo industry ──\nconst CATEGORY_MAP = [\n  [['cosmetic','beauty','personal care','skin care','skincare','makeup'],  'Cosmetics & Skincare'],\n  [['hair','salon','trichology'],                                           'Hair Care'],\n  [['spa','wellness','massage','aromatherapy'],                             'Spa & Wellness'],\n  [['health','fitness','gym','yoga'],                                       'Spa & Wellness'],\n  [['natural','organic','botanical','herbal'],                              'Natural & Organic'],\n  [['private label','contract manufactur','white label'],                   'Private Label / Mfg'],\n  [['manufactur','packaging'],                                              'Private Label / Mfg'],\n  [['wholesale','distribut','import','export'],                             'Wholesale / Distribution'],\n  [['retail','e-commerce','ecommerce','shop','store'],                      'Retail / E-commerce'],\n  [['food','beverage','drink','edible'],                                    'Food & Beverage'],\n  [['pharma','nutraceut','supplement','biotech','drug'],                    'Pharma / Nutraceuticals'],\n];\nconst rawIndustry = (org.industry || '').toLowerCase();\nlet businessCategory = 'Other';\nfor (let i = 0; i < CATEGORY_MAP.length; i++) {\n  const [keywords, label] = CATEGORY_MAP[i];\n  if (keywords.some(kw => rawIndustry.includes(kw))) { businessCategory = label; break; }\n}\n\n// ── Company Size mapping ──\nconst emp = org.estimated_num_employees || 0;\nlet companySize = '';\nif (emp > 0) {\n  companySize = emp <= 10 ? '1–10' : emp <= 50 ? '11–50' : emp <= 200 ? '51–200' : '200+';\n}\n\n// ── Source Query from webhook ──\nconst wb = $('Webhook').item.json.body || {};\nconst sourceQuery = [wb.keywords, wb.location].filter(Boolean).join(' — ');\n\nreturn [{ json: {\n  business_name: org.name || '',\n  location: location,\n  email: person.email || '',\n  phone: phone,\n  company_description: description,\n  url: org.website_url || (org.primary_domain ? 'https://' + org.primary_domain : ''),\n  contact_name: [person.first_name, person.last_name].filter(Boolean).join(' '),\n  contact_title: person.title || '',\n  email_verified: isVerified,\n  email_status: person.email_status || 'unknown',\n  companyDomain: org.primary_domain || '',\n  business_category: businessCategory,\n  company_size: companySize,\n  source_query: sourceQuery,\n  _totalFromApollo: $('Process Apollo Results').first().json._totalFromApollo || 0,\n} }];"
+      },
+      "id": "apollo-format-revealed-001",
+      "name": "Format Revealed Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        2016
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1067c223-5ac7-4256-9f18-8ec0f144a4f6",
+              "leftValue": "",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1712,
+        2000
+      ],
+      "id": "84d4ef49-de6d-428b-bb4a-45d9281cfb76",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "orgName",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        -1888,
+        2000
+      ],
+      "id": "b0953af4-d74b-44f8-9282-5ea845bd644c",
+      "name": "Remove Duplicates2"
+    },
+    {
+      "parameters": {
+        "content": "## web scraping ",
+        "height": 640,
+        "width": 1344,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -3024,
+        864
+      ],
+      "typeVersion": 1,
+      "id": "7e87ba3f-fa6f-43da-a7ec-4787cce2ea34",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## get data",
+        "height": 256,
+        "width": 608,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -576,
+        736
+      ],
+      "typeVersion": 1,
+      "id": "8081a8b3-efb3-4dd2-8b2b-894e3b59799c",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Email verification",
+        "height": 208,
+        "width": 608
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        560,
+        624
+      ],
+      "typeVersion": 1,
+      "id": "6b4bc3e8-80cb-438e-9261-98fcc640d94a",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Valid leads ",
+        "height": 256,
+        "width": 432,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1312,
+        592
+      ],
+      "typeVersion": 1,
+      "id": "261db54c-4b9e-40d8-ad21-033f781de1e9",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "##     Invalid leads",
+        "height": 240,
+        "width": 496,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        720,
+        912
+      ],
+      "typeVersion": 1,
+      "id": "d1102035-3e1d-4946-b1b2-2c256b4a0411",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "operation": "removeItemsSeenInPreviousExecutions",
+        "dedupeValue": "={{ $json.companyName }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        -1456,
+        1056
+      ],
+      "id": "17519265-d99a-436f-8ded-f5bce85f714a",
+      "name": "Remove Duplicates3"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Loop Over URLs1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook (Duplicates)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Start Time2": {
+      "main": [
+        [
+          {
+            "node": "Generate Query Variations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over URLs1": {
+      "main": [
+        [
+          {
+            "node": "calculate how many lead send to loop1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Lead Info1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Lead Info1": {
+      "main": [
+        [
+          {
+            "node": "Parse Lead Data1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Lead Data1": {
+      "main": [
+        [
+          {
+            "node": "If Email Exists1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Email Exists1": {
+      "main": [
+        [
+          {
+            "node": "Classify Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Email - Store Anyway1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Email1": {
+      "main": [
+        [
+          {
+            "node": "Merge Verification1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Verification1": {
+      "main": [
+        [
+          {
+            "node": "If Email Valid1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Email Valid1": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Append row in sheet3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Email - Store Anyway1": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "company domain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter URLs1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet3": {
+      "main": [
+        [
+          {
+            "node": "Loop Over URLs1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "calculate how many lead send to loop1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search the web and scrape results": {
+      "main": [
+        [
+          {
+            "node": "Accumulate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "company domain": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Channel Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Email": {
+      "main": [
+        [
+          {
+            "node": "Is Personal Email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Personal Email?": {
+      "main": [
+        [
+          {
+            "node": "Verify Email1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Channel Router": {
+      "main": [
+        [
+          {
+            "node": "Set Start Time2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Apollo Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet2": {
+      "main": [
+        [
+          {
+            "node": "Loop Over URLs1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Query Variations": {
+      "main": [
+        [
+          {
+            "node": "Search Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Loop": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search the web and scrape results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Accumulate Results": {
+      "main": [
+        [
+          {
+            "node": "Search Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge All Results": {
+      "main": [
+        [
+          {
+            "node": "Filter URLs1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Apollo Request": {
+      "main": [
+        [
+          {
+            "node": "Apollo People Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Apollo Results": {
+      "main": [
+        [
+          {
+            "node": "Apollo Dedup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo Dedup": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo Loop": {
+      "main": [
+        [
+          {
+            "node": "Apollo Stats",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Apollo Reveal Person",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo If Valid": {
+      "main": [
+        [
+          {
+            "node": "Apollo Save Valid",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Apollo Save Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo Save Valid": {
+      "main": [
+        [
+          {
+            "node": "Apollo Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo Save Invalid": {
+      "main": [
+        [
+          {
+            "node": "Apollo Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo Wait": {
+      "main": [
+        [
+          {
+            "node": "Apollo Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo Stats": {
+      "main": [
+        [
+          {
+            "node": "Apollo Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo People Search": {
+      "main": [
+        [
+          {
+            "node": "Process Apollo Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo Reveal Person": {
+      "main": [
+        [
+          {
+            "node": "Format Revealed Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Revealed Data": {
+      "main": [
+        [
+          {
+            "node": "Apollo If Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Apollo Loop",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Apollo No Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates2": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates3": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "bffb637c-4d5d-496a-811c-723f8061efe1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0c1886f4ca68a7ab7e07369dba8ba5ebe39422c8742ca2739de13457e7e9aae5"
+  },
+  "nodeGroups": [],
+  "id": "WyDcXTH1HqWUrEaQ",
+  "tags": []
+}
